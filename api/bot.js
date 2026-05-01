@@ -9,14 +9,14 @@ if (!botToken) {
 const bot = new Telegraf(botToken);
 
 bot.start((ctx) => {
-    return ctx.reply('Halo! bos izams Kirimkan link video TikTok, dan saya akan mengirimkan video HD tanpa watermark untukmu.');
+    return ctx.reply('Halo! bos izam gantengku Kirimkan link video atau foto (slideshow) TikTok, dan saya akan mengirimkannya tanpa watermark untukmu.');
 });
 
 bot.on('text', async (ctx) => {
     const text = ctx.message.text;
 
     if (text.includes('tiktok.com') || text.includes('vt.tiktok.com')) {
-        await ctx.reply('🔄 Sedang memproses video HD, mohon tunggu sebentar...');
+        await ctx.reply('🔄 Sedang memproses, mohon tunggu sebentar...');
 
         try {
             const response = await axios.post('https://www.tikwm.com/api/', {}, {
@@ -29,18 +29,34 @@ bot.on('text', async (ctx) => {
             const apiData = response.data.data;
 
             if (apiData) {
-                // Mengambil kualitas tertinggi (HD) terlebih dahulu
-                const videoUrl = apiData.hdplay || apiData.play;
+                // Cek apakah konten merupakan foto (slideshow)
+                if (apiData.images && apiData.images.length > 0) {
+                    const images = apiData.images;
+                    
+                    // Mengubah array link gambar menjadi format media group Telegram
+                    const mediaGroup = images.map((imgUrl) => ({
+                        type: 'photo',
+                        media: imgUrl
+                    }));
 
-                return ctx.replyWithVideo(
-                    { url: videoUrl },
-                    { caption: '✅ Berhasil! Video TikTok Kualitas HD.' }
-                );
+                    await ctx.replyWithMediaGroup(mediaGroup);
+                    return ctx.reply('✅ Berhasil! Foto/Slideshow TikTok tanpa watermark.');
+                } 
+                // Cek apakah konten berupa video
+                else if (apiData.play) {
+                    const videoUrl = apiData.hdplay || apiData.play;
+                    return ctx.replyWithVideo(
+                        { url: videoUrl },
+                        { caption: '✅ Berhasil! Video TikTok Kualitas HD.' }
+                    );
+                } else {
+                    return ctx.reply('❌ Gagal mengambil data. Pastikan link yang Anda masukkan benar.');
+                }
             } else {
-                return ctx.reply('❌ Gagal mengambil data video. Pastikan link-nya benar.');
+                return ctx.reply('❌ Gagal mengambil data dari TikTok. Pastikan link-nya benar.');
             }
         } catch (error) {
-            return ctx.reply('❌ Terjadi kesalahan saat memproses permintaan.');
+            return ctx.reply('❌ Terjadi kesalahan saat memproses permintaan Anda.');
         }
     } else {
         return ctx.reply('Silakan kirimkan link TikTok (contoh: https://vt.tiktok.com/...)');
