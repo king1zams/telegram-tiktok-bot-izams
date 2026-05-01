@@ -1,4 +1,4 @@
-const { Telegraf } = require('telegraf');
+const { Telegraf, Markup } = require('telegraf');
 const axios = require('axios');
 
 const botToken = process.env.BOT_TOKEN;
@@ -8,44 +8,81 @@ if (!botToken) {
 
 const bot = new Telegraf(botToken);
 
+// Penyimpanan sementara untuk URL link (sementara di memori selama proses berlangsung)
+const pendingLinks = new Map();
+
 bot.start((ctx) => {
-    return ctx.reply('Halo! Bos Izams.Silakan Kirim Link Video Tiktok');
+    return ctx.reply('Halo! Kirimkan link video TikTok bos izams. dan saya akan mendownloadnya.');
 });
 
+// Menangani saat pengguna mengirimkan teks/link TikTok
 bot.on('text', async (ctx) => {
     const text = ctx.message.text;
 
     if (text.includes('tiktok.com') || text.includes('vt.tiktok.com')) {
-        await ctx.reply('🔄 Sedang memproses video, mohon tunggu sebentar bos izams...');
+        // Simpan link dengan ID pesan sebagai kuncinya
+        pendingLinks.set(ctx.message.message_id, text);
 
-        try {
-            const response = await axios.post('https://www.tikwm.com/api/', {}, {
-                params: {
-                    url: text,
-                    hd: 1
-                }
-            });
-
-            const data = response.data.data;
-
-            if (data && data.play) {
-                const videoUrl = data.play;
-                return ctx.replyWithVideo(
-                    { url: videoUrl },
-                    { caption: '✅ Berhasil! Video TikTok tanpa watermark.' }
-                );
-            } else {
-                return ctx.reply('❌ Gagal mengunduh video. Pastikan link yang Anda masukkan benar.');
-            }
-        } catch (error) {
-            return ctx.reply('❌ Terjadi kesalahan saat memproses permintaan Anda.');
-        }
+        // Tampilkan tombol pilihan kualitas
+        return ctx.reply(
+            '🔄 Silakan pilih kualitas video yang ingin diunduh:',
+            Markup.inlineKeyboard([
+                [Markup.button.callback('Kualitas HD', `hd_${ctx.message.message_id}`)],
+                [Markup.button.callback('Kualitas Standar', `sd_${ctx.message.message_id}`)]
+            ])
+        );
     } else {
         return ctx.reply('Silakan kirimkan link TikTok (contoh: https://vt.tiktok.com/...)');
     }
 });
 
-// Handler untuk Vercel Serverless Function
+// Menangani tombol yang ditekan oleh pengguna
+bot.on('callback_query', async (ctx) => {
+    const data = ctx.callbackQuery.data; // Contoh: "hd_12345" atau "sd_12345"
+    const [quality, messageId] = data.split('_');
+
+    // Ambil link dari memori
+    const text = pendingLinks.get(parseInt(messageId));
+
+    if (!text) {
+        return ctx.answerCbQuery('Pesan telah kedaluwarsa. Silakan kirim ulang link-nya.');
+    }
+
+    await ctx.answerCbQuery('Sedang memproses video...');
+
+    try {
+        const response = await axios.post('https://www.tikwm.com/api/', {}, {
+            params: {
+                url: text,
+                hd: 1
+            }
+        });
+
+        const apiData = response.data.data;
+
+        if (apiData) {
+            // Tentukan URL berdasarkan tombol yang ditekan
+            const videoUrl = (quality === 'hd') ? (apiData.hdplay || apiData.play) : apiData.play;
+            const qualityName = (quality === 'hd') ? 'HD' : 'Standar';
+
+            // Hapus keyboard pilihan setelah diproses
+            await ctx.editMessageReplyMarkup({});
+
+            await ctx.replyWithVideo(
+                { url: videoUrl },
+                { caption: `✅ Berhasil! Video TikTok Kualitas ${qualityName}.` }
+            );
+
+            // Bersihkan memori agar tidak penuh
+            pendingLinks.delete(parseInt(messageId));
+        } else {
+            await ctx.reply('❌ Gagal mengambil data video. Pastikan link-nya benar.');
+        }
+    } catch (error) {
+        await ctx.reply('❌ Terjadi kesalahan saat memproses permintaan.');
+    }
+});
+
 module.exports = async (req, res) => {
     if (req.method === 'POST') {
         try {
