@@ -8,11 +8,8 @@ if (!botToken) {
 
 const bot = new Telegraf(botToken);
 
-// Penyimpanan sementara untuk URL link (sementara di memori selama proses berlangsung)
-const pendingLinks = new Map();
-
 bot.start((ctx) => {
-    return ctx.reply('Halo! Kirimkan link video TikTok bos izams. dan saya akan mendownloadnya.');
+    return ctx.reply('Halo!bos izams Kirimkan link video TikTok, dan saya akan mengirimkan video tanpa watermark untukmu.');
 });
 
 // Menangani saat pengguna mengirimkan teks/link TikTok
@@ -20,16 +17,19 @@ bot.on('text', async (ctx) => {
     const text = ctx.message.text;
 
     if (text.includes('tiktok.com') || text.includes('vt.tiktok.com')) {
-        // Simpan link dengan ID pesan sebagai kuncinya
-        pendingLinks.set(ctx.message.message_id, text);
+        const hiddenLink = text;
+        // Menyimpan URL di dalam entity tak terlihat menggunakan zero-width space
+        const displayMessage = `🔄 Silakan pilih kualitas video yang ingin diunduh:\n\n<a href="${hiddenLink}">&#8203;</a>`;
 
-        // Tampilkan tombol pilihan kualitas
         return ctx.reply(
-            '🔄 Silakan pilih kualitas video yang ingin diunduh:',
-            Markup.inlineKeyboard([
-                [Markup.button.callback('Kualitas HD', `hd_${ctx.message.message_id}`)],
-                [Markup.button.callback('Kualitas Standar', `sd_${ctx.message.message_id}`)]
-            ])
+            displayMessage,
+            {
+                parse_mode: 'HTML',
+                ...Markup.inlineKeyboard([
+                    [Markup.button.callback('Kualitas HD', 'hd')],
+                    [Markup.button.callback('Kualitas Standar', 'sd')]
+                ])
+            }
         );
     } else {
         return ctx.reply('Silakan kirimkan link TikTok (contoh: https://vt.tiktok.com/...)');
@@ -38,11 +38,18 @@ bot.on('text', async (ctx) => {
 
 // Menangani tombol yang ditekan oleh pengguna
 bot.on('callback_query', async (ctx) => {
-    const data = ctx.callbackQuery.data; // Contoh: "hd_12345" atau "sd_12345"
-    const [quality, messageId] = data.split('_');
+    const quality = ctx.callbackQuery.data; // 'hd' atau 'sd'
+    const message = ctx.callbackQuery.message;
 
-    // Ambil link dari memori
-    const text = pendingLinks.get(parseInt(messageId));
+    // Mengambil URL dari dalam link tersembunyi
+    let text = '';
+    if (message && message.entities) {
+        for (const entity of message.entities) {
+            if (entity.type === 'text_link') {
+                text = entity.url;
+            }
+        }
+    }
 
     if (!text) {
         return ctx.answerCbQuery('Pesan telah kedaluwarsa. Silakan kirim ulang link-nya.');
@@ -61,7 +68,6 @@ bot.on('callback_query', async (ctx) => {
         const apiData = response.data.data;
 
         if (apiData) {
-            // Tentukan URL berdasarkan tombol yang ditekan
             const videoUrl = (quality === 'hd') ? (apiData.hdplay || apiData.play) : apiData.play;
             const qualityName = (quality === 'hd') ? 'HD' : 'Standar';
 
@@ -72,9 +78,6 @@ bot.on('callback_query', async (ctx) => {
                 { url: videoUrl },
                 { caption: `✅ Berhasil! Video TikTok Kualitas ${qualityName}.` }
             );
-
-            // Bersihkan memori agar tidak penuh
-            pendingLinks.delete(parseInt(messageId));
         } else {
             await ctx.reply('❌ Gagal mengambil data video. Pastikan link-nya benar.');
         }
